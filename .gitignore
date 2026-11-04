@@ -1,0 +1,36 @@
+# Python environments and bytecode
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime database and SQLite sidecars
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.db-shm
+data/*.db-wal
+
+# Logs and generated exports
+logs/*
+!logs/.gitkeep
+*.log
+exports/
+
+# Node / editor / OS noise
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

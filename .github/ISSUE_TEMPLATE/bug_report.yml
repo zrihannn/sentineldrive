@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in SentinelDrive OS.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please do not attach camera footage, personal driver information, database backups or secrets."
+  - type: input
+    id: version
+    attributes:
+      label: SentinelDrive version
+      placeholder: "3.0.5"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS, Python version and browser
+      placeholder: "Windows 11, Python 3.12, Chrome 130"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps that trigger the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and redacted logs
+    validations:
+      required: true
