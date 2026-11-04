@@ -1,5 +1,5 @@
-const CACHE_NAME = 'sentineldrive-shell-v3.0.5';
-const SHELL = ['/', '/index.html', '/styles.css?v=3.0.5', '/js/app.js?v=3.0.5', '/js/api.js?v=3.0.5', '/js/vision.js?v=3.0.5', '/js/alarm.js?v=3.0.5', '/manifest.webmanifest', '/icon.svg'];
+const CACHE_NAME = 'sentineldrive-shell-v3.0.6';
+const SHELL = ['/', '/index.html', '/styles.css?v=3.0.6', '/js/app.js?v=3.0.6', '/js/api.js?v=3.0.6', '/js/vision.js?v=3.0.6', '/js/alarm.js?v=3.0.6', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
