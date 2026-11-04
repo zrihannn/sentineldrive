@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.5';
-import { VisionEngine } from './vision.js?v=3.0.5';
-import { AlarmEngine } from './alarm.js?v=3.0.5';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.6';
+import { VisionEngine } from './vision.js?v=3.0.6';
+import { AlarmEngine } from './alarm.js?v=3.0.6';
 
 const $ = id => document.getElementById(id);
 const clamp = (value,min,max) => Math.max(min,Math.min(max,value));
@@ -715,7 +715,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.5', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.6', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);
