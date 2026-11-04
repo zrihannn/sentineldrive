@@ -234,7 +234,7 @@ function renderSessions() {
   $('sessionSummary').innerHTML=summaryCard('TOTAL RECORDS',state.sessions.length)+summaryCard('COMPLETED',state.sessions.filter(s=>s.status==='completed').length)+summaryCard('ACTIVE',state.sessions.filter(s=>s.status==='active').length)+summaryCard('TELEMETRY SAMPLES',state.sessions.reduce((sum,s)=>sum+Number(s.telemetry_count||0),0).toLocaleString());
   const q=($('sessionSearch').value||'').toLowerCase(),status=$('sessionStatusFilter').value;
   const rows=state.sessions.filter(s=>(status==='all'||s.status===status)&&`${s.id} ${nameForDriver(s.driver_id)} ${nameForVehicle(s.vehicle_id)}`.toLowerCase().includes(q));
-  $('sessionsTable').innerHTML=rows.length?`<table class="data-table"><thead><tr><th>SESSION</th><th>DRIVER / VEHICLE</th><th>STARTED</th><th>DURATION</th><th>TELEMETRY</th><th>EVENTS</th><th>ATTENTION</th><th>STATUS</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><span class="table-primary">${esc(s.id.slice(-10).toUpperCase())}</span><span class="sub-cell">${esc(s.id)}</span></td><td><span class="table-primary">${esc(nameForDriver(s.driver_id))}</span><span class="sub-cell">${esc(nameForVehicle(s.vehicle_id))}</span></td><td>${fmtDate(s.started_at)}</td><td>${fmtDuration(s.duration_seconds||((s.ended_at?new Date(s.ended_at):new Date())-new Date(s.started_at))/1000)}</td><td>${Number(s.telemetry_count||0).toLocaleString()}</td><td>${s.incident_count||0}</td><td>${s.average_attention==null?'—':`${Math.round(s.average_attention)} / 100`}</td><td><span class="status-chip ${s.status==='active'?'restricted':'active'}">${esc(s.status.toUpperCase())}</span></td><td><button class="row-action" data-session-detail="${esc(s.id)}">Inspect</button></td></tr>`).join('')}</tbody></table>`:'<div class="table-empty"><b>No monitoring sessions found</b>Start a monitored session to create a permanent record with linked telemetry.</div>';
+  $('sessionsTable').innerHTML=rows.length?`<table class="data-table"><thead><tr><th>SESSION</th><th>DRIVER / VEHICLE</th><th>STARTED</th><th>DURATION</th><th>TELEMETRY</th><th>EVENTS</th><th>ATTENTION</th><th>STATUS</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><span class="table-primary">${esc(s.id.slice(-10).toUpperCase())}</span><span class="sub-cell">${esc(s.id)}</span></td><td><span class="table-primary">${esc(nameForDriver(s.driver_id))}</span><span class="sub-cell">${esc(nameForVehicle(s.vehicle_id))}</span></td><td>${fmtDate(s.started_at)}</td><td>${fmtDuration(s.duration_seconds||((s.ended_at?new Date(s.ended_at):new Date())-new Date(s.started_at))/1000)}</td><td>${Number(s.telemetry_count||0).toLocaleString()}</td><td>${s.incident_count||0}</td><td>${s.average_attention==null?'—':`${Math.round(s.average_attention)} / 100`}</td><td><span class="status-chip ${s.status==='active'?'restricted':'active'}">${esc(s.status.toUpperCase())}</span></td><td><div class="row-actions"><button class="row-action" data-session-detail="${esc(s.id)}">Inspect</button>${s.status==='active'?`<button class="row-action danger" data-session-finish="${esc(s.id)}">End</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:'<div class="table-empty"><b>No monitoring sessions found</b>Start a monitored session to create a permanent record with linked telemetry.</div>';
 }
 function severityClass(value){return ['critical','high','medium','low'].includes(value)?value:'medium';}
 function renderEvents() {
@@ -288,7 +288,7 @@ function handleMetrics(raw) {
   const riskScore=Math.round(clamp(eyeRisk*.48+gazeRisk*.22+postureRisk*.20+mouthRisk*.10,0,100));
   const metrics={...raw,postureScore,attentionScore,riskScore,eyesClosed:raw.ear<p.earThreshold,yawning:raw.mar>p.marThreshold,trackingConfidence:raw.trackingConfidence};
   state.currentMetrics=metrics;state.currentRisk=riskScore;
-  $('sessionBtn').disabled=Boolean(state.currentSession);$('calibrateBtn').disabled=false;$('policyCalibrateBtn').disabled=!state.selectedDriverId;
+  $('sessionBtn').disabled=!state.currentSession&&!state.currentMetrics;$('calibrateBtn').disabled=false;$('policyCalibrateBtn').disabled=!state.selectedDriverId;
   updateMetricCards(metrics);updateDriverState(metrics);evaluateRules(metrics,performance.now());
   if(state.currentSession) collectTelemetry(metrics);
   if(state.calibration) collectCalibration(metrics);
@@ -422,6 +422,44 @@ async function stopSession() {
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';$('sessionHelper').textContent='Live alerts remain active while the camera is connected. Start another session to persist telemetry.';
   saveCache();renderAll();void refreshHealth();void loadAnalytics(30);toast(`Session archived · ${payload.telemetry_count.toLocaleString()} telemetry samples saved.`,'success');
 }
+async function finishArchivedSession(sessionId) {
+  const session=state.sessions.find(item=>item.id===sessionId);
+  if(!session||session.status!=='active')return;
+  if(state.currentSession?.id===sessionId){await stopSession();return;}
+  if(!window.confirm('End this active session and archive it?'))return;
+
+  const endedAt=isoNow();
+  const startedAt=Date.parse(session.started_at);
+  const duration=Number.isFinite(startedAt)?Math.max(0,(Date.now()-startedAt)/1000):0;
+  const payload={
+    ended_at:endedAt,
+    duration_seconds:duration,
+    average_attention:null,
+    average_posture:null,
+    average_risk:null,
+    peak_risk:null,
+    telemetry_count:Number(session.telemetry_count||0),
+    incident_count:Number(session.incident_count||0)
+  };
+
+  try{
+    const result=await apiWrite('POST',`/api/sessions/${encodeURIComponent(sessionId)}/finish`,payload);
+    session.status='completed';
+    session.ended_at=endedAt;
+    session.duration_seconds=duration;
+    saveCache();
+    renderAll();
+    if(result?.queued){
+      toast('Session end queued. It will sync when the backend is reachable.','info');
+      return;
+    }
+    await refreshSessionsAndIncidents();
+    toast('Previously active session archived.','success');
+  }catch(error){
+    toast(`Could not end session: ${error.message||error}`,'error');
+  }
+}
+
 function updateSessionClock() {
   if(!state.currentSession)return;
   $('sessionDuration').textContent=fmtDuration((Date.now()-state.sessionStartedAt)/1000);
@@ -618,7 +656,7 @@ function globalSearch(query){if(!query.trim())return;navigate('events');$('event
 function bindEvents() {
   document.querySelectorAll('.nav-link,[data-goto]').forEach(node=>node.addEventListener('click',()=>navigate(node.dataset.view||node.dataset.goto)));
   $('enableCameraBtn').addEventListener('click',connectCamera);$('stopCameraBtn').addEventListener('click',()=>void disconnectCamera());$('switchCameraBtn').addEventListener('click',switchCamera);
-  $('sessionBtn').addEventListener('click',()=>state.currentSession?void stopSession():void startSession());$('calibrateBtn').addEventListener('click',startCalibration);$('policyCalibrateBtn').addEventListener('click',startCalibration);$('cancelCalibrationBtn').addEventListener('click',cancelCalibration);
+  $('sessionBtn').addEventListener('click',()=>state.currentSession?void stopSession().catch(error=>toast(`Could not end session: ${error.message||error}`,'error')):void startSession().catch(error=>toast(`Could not start session: ${error.message||error}`,'error')));$('calibrateBtn').addEventListener('click',startCalibration);$('policyCalibrateBtn').addEventListener('click',startCalibration);$('cancelCalibrationBtn').addEventListener('click',cancelCalibration);
   const setCameraExpanded = expanded => {
     const stage = $('cameraStage');
     const button = $('fullscreenBtn');
@@ -646,7 +684,7 @@ function bindEvents() {
   $('addVehicleBtn').addEventListener('click',()=>openVehicleDialog());$('vehicleForm').addEventListener('submit',saveVehicleFromForm);
   $('vehiclesTable').addEventListener('click',event=>{const edit=event.target.closest('[data-vehicle-edit]'),del=event.target.closest('[data-vehicle-delete]');if(edit)openVehicleDialog(state.vehicles.find(v=>v.id===edit.dataset.vehicleEdit));if(del)void deleteVehicle(del.dataset.vehicleDelete);});
   $('vehicleSearch').addEventListener('input',renderVehicles);$('vehicleStatusFilter').addEventListener('change',renderVehicles);
-  $('sessionsTable').addEventListener('click',event=>{const detail=event.target.closest('[data-session-detail]');if(detail)void showSessionDetail(detail.dataset.sessionDetail);});$('sessionSearch').addEventListener('input',renderSessions);$('sessionStatusFilter').addEventListener('change',renderSessions);$('closeDetailBtn').addEventListener('click',()=>$('detailDialog').close());
+  $('sessionsTable').addEventListener('click',event=>{const detail=event.target.closest('[data-session-detail]'),finish=event.target.closest('[data-session-finish]');if(detail)void showSessionDetail(detail.dataset.sessionDetail);if(finish)void finishArchivedSession(finish.dataset.sessionFinish);});$('sessionSearch').addEventListener('input',renderSessions);$('sessionStatusFilter').addEventListener('change',renderSessions);$('closeDetailBtn').addEventListener('click',()=>$('detailDialog').close());
   ['eventSearch','eventTypeFilter','eventSeverityFilter','eventAckFilter'].forEach(id=>$(id).addEventListener(id==='eventSearch'?'input':'change',renderEvents));
   $('eventsTable').addEventListener('click',event=>{const ack=event.target.closest('[data-event-ack]');if(ack)void acknowledgeIncident(ack.dataset.eventAck);});
   bindPolicyRange('polEar','earThreshold',v=>v.toFixed(3));bindPolicyRange('polMar','marThreshold',v=>v.toFixed(2));bindPolicyRange('polDrowsy','drowsyDelay',v=>`${v.toFixed(1)} s`);bindPolicyRange('polYawn','yawnDelay',v=>`${v.toFixed(1)} s`);bindPolicyRange('polPose','poseTolerance',v=>`${v}°`);bindPolicyRange('polGaze','gazeTolerance',v=>v.toFixed(2));bindPolicyRange('polDistraction','distractionDelay',v=>`${v.toFixed(1)} s`);bindPolicyRange('polFaceLost','faceLostDelay',v=>`${v.toFixed(1)} s`);bindPolicyRange('polVolume','alarmVolume',v=>`${v}%`);
