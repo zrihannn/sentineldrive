@@ -65,7 +65,7 @@ Open the Vercel production URL and check:
 - The System Journal reports the API as connected.
 - CSV export and JSON backup work.
 
-You can also open `https://YOUR-VERCEL-DOMAIN/api/health`. It should return the backend health JSON through the proxy. Opening the Render service's `/api/health` directly without the proxy key should return `401`.
+Verify the proxy by opening `https://<VERCEL_DOMAIN>/api/health`. The endpoint should return the backend health JSON. Direct requests to the Render service's `/api/health` without the proxy key should return `401`.
 
 ## Storage and operational notes
 
