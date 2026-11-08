@@ -1,25 +1,20 @@
-## 3.0.5
-- Added an in-overlay Exit Expanded View control for the camera viewport.
-- Escape exits expanded camera mode.
-- Fullscreen control now behaves as a reversible toggle and exposes its state accessibly.
-
 # Changelog
 
-## 3.0.2 - Windows Python 3.15 setup fix
+## Driver monitoring and workspace controls
 
-- Replaced `uvicorn[standard]` with base `uvicorn` in the backend requirements.
-- The app does not use the optional Uvicorn standard extras; removing them avoids pulling in PyYAML for this local API.
-- This avoids a Windows source-build failure for PyYAML on Python 3.15 when a compatible wheel is unavailable.
-- No C++ Build Tools installation is required for this dependency path.
-- Updated displayed application and API version to 3.0.2.
+- Added an in-overlay Exit Expanded View control for the camera viewport.
+- Escape exits expanded camera mode.
+- The fullscreen control behaves as a reversible toggle and exposes its state accessibly.
 
-## 3.0.5
-- Fixed splash-screen deadlocks by making secondary workspace requests non-blocking.
-- Added request timeouts and no-store fetches for API reads.
+## Windows setup and dependency handling
+
+- Replaced optional Uvicorn standard extras with the base Uvicorn package.
+- Removed an unused optional dependency path that could trigger unnecessary native-build requirements on Windows.
+- Kept the local API installation focused on the runtime components used by the application.
+
+## Frontend startup reliability
+
+- Made secondary workspace requests non-blocking so the main workspace can open after core bootstrap data loads.
+- Added API request timeouts and deferred offline queue synchronization until after the interface appears.
 - Added startup stages, module-error diagnostics, and a retry action on the splash screen.
-- Versioned the service-worker cache and frontend module URL.
-
-## 3.0.5 - Frontend startup reliability
-- Main workspace now opens after the core bootstrap payload instead of waiting for optional history and analytics requests.
-- Added API request timeouts and deferred offline queue sync until after the interface appears.
-- Added startup stages, error diagnostics, retry action, and versioned frontend/service-worker assets.
+- Updated frontend and service-worker asset caching when application resources change.
