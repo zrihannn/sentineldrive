@@ -10,10 +10,9 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" />
   <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white" />
   <img alt="Database" src="https://img.shields.io/badge/Database-SQLite-003B57?logo=sqlite&logoColor=white" />
-  <img alt="Version" src="https://img.shields.io/badge/Version-3.0.5-1F8B4C" />
 </p>
 
-SentinelDrive OS is an internship-level engineering project that brings browser-based driver-state estimation into a wider operations workspace. The live vision system is one part of the application; driver and vehicle profiles, monitoring sessions, telemetry, safety events, policies, analytics, audit activity and backup/recovery are handled as separate product modules.
+SentinelDrive OS is an engineering project that brings browser-based driver-state estimation into a wider operations workspace. The live vision system is one part of the application; driver and vehicle profiles, monitoring sessions, telemetry, safety events, policies, analytics, audit activity and backup/recovery are handled as separate product modules.
 
 > **Safety notice:** SentinelDrive is an educational driver-awareness prototype, not a certified driver-monitoring system, medical device or substitute for rest, driver judgement or legally required safety equipment. Do not rely on it as the sole protection mechanism in a moving vehicle.
 
@@ -107,7 +106,7 @@ The local server binds to `127.0.0.1` by default. The browser camera feed is pro
 ### Windows
 
 1. Download or clone this repository.
-2. Install Python 3.10 or newer.
+2. Install a supported Python runtime.
 3. Open the project folder and double-click `run_windows.bat`.
 4. Keep the separate **SentinelDrive OS API** terminal open.
 5. Open **http://127.0.0.1:8000** if the browser does not open automatically.
