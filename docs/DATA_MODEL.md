@@ -43,7 +43,7 @@ The primary sample interval is configurable. The default is one second.
 
 ### Policy
 
-A single versioned JSON document is stored in the `policies` table. It contains the active thresholds, persistence delays, alarm configuration, telemetry interval and retention target.
+A single active JSON document is stored in the `policies` table. It contains the active thresholds, persistence delays, alarm configuration, telemetry interval and retention target.
 
 ## Important interpretation note
 
