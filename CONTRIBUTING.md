@@ -4,7 +4,7 @@ Thanks for helping improve SentinelDrive. Keep contributions focused, testable a
 
 ## Development setup
 
-1. Install Python 3.10 or newer.
+1. Install a supported Python runtime.
 2. Create and activate a virtual environment.
 3. Install development dependencies:
 
@@ -35,4 +35,4 @@ Thanks for helping improve SentinelDrive. Keep contributions focused, testable a
 
 ## Reporting issues
 
-Include your OS, Python version, browser, exact steps to reproduce and relevant redacted terminal output. Never include private camera footage, driver identities, tokens or database backups in a public issue.
+Include the operating system, Python runtime, reproduction steps and relevant redacted terminal output. Never include private camera footage, driver identities, tokens or database backups in a public issue.
