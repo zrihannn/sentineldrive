@@ -1,6 +1,6 @@
 # Publishing SentinelDrive OS to a new GitHub repository
 
-1. On GitHub, create a new repository named `sentineldrive-os` under the GitHub account that will own the repository. Set visibility to **Private** if you want it visible only to you.
+1. On GitHub, create a new repository named `sentineldrive-os` under the GitHub account that will own the repository. For account-only visibility, set the repository to **Private**.
 2. Do not initialise it with a README, `.gitignore` or license.
 3. Extract this project ZIP. Open a terminal in the extracted `SentinelDrive_OS` folder.
 4. Run the following commands in PowerShell or Git Bash:
@@ -10,7 +10,7 @@ git init -b main
 git add .
 git status
 git commit -m "Add SentinelDrive OS with Vercel and Render deployment"
-git remote add origin https://github.com/YOUR_GITHUB_USERNAME/sentineldrive-os.git
+git remote add origin https://github.com/<GITHUB_USERNAME>/sentineldrive-os.git
 git push -u origin main
 ```
 
@@ -19,8 +19,8 @@ Replace `YOUR_GITHUB_USERNAME` with the GitHub account username.
 If Git reports that `main` already exists, continue with `git add .`. If Git asks for an identity, configure it once:
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "your-github-noreply-email@example.com"
+git config --global user.name "Git Author Name"
+git config --global user.email "git-author@example.com"
 ```
 
 Use Git Credential Manager or GitHub's browser-based sign-in when Git requests authentication. Never put a personal access token directly in the remote URL or commit it to a file.
