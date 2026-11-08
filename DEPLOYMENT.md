@@ -1,4 +1,4 @@
-# SentinelDrive OS 3.0.5 deployment
+# SentinelDrive OS deployment
 
 This repository is configured for a split deployment:
 
