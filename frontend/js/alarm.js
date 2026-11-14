@@ -98,7 +98,7 @@ export class AlarmEngine {
   silence() {
     this.silencedUntilClear = true;
     this.stop(false);
-    this.emit('Alarm silenced until eyes reopen and a new event occurs.');
+    this.emit('Alarm silenced until the active alert clears.');
   }
   clearCondition() {
     this.silencedUntilClear = false;

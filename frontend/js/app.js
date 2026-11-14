@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.9';
-import { VisionEngine } from './vision.js?v=3.0.9';
-import { AlarmEngine } from './alarm.js?v=3.0.9';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.10';
+import { VisionEngine } from './vision.js?v=3.0.10';
+import { AlarmEngine } from './alarm.js?v=3.0.10';
 
 const $ = id => document.getElementById(id);
 const THEME_KEY = 'sentineldrive.theme';
@@ -367,12 +367,16 @@ function handleFaceLost() {
   if(state.currentSession){
     const t=state.eventTimers,now=performance.now()/1000;
     if(!t.faceLostStart)t.faceLostStart=now;
-    if(!t.faceLostTriggered&&now-t.faceLostStart>=state.policies.faceLostDelay){t.faceLostTriggered=true;addIncident('face_lost','Face tracking interrupted','The face landmark engine could not maintain a face lock. Check camera alignment and lighting.','high',null,Math.round((now-t.faceLostStart)*1000));}
+    if(!t.faceLostTriggered&&now-t.faceLostStart>=state.policies.faceLostDelay){t.faceLostTriggered=true;addIncident('face_lost','Face tracking interrupted','The face landmark engine could not maintain a face lock. Check camera alignment and lighting.','high',null,Math.round((now-t.faceLostStart)*1000));if(state.policies.alarmEnabled)void alarm.start();}
   }
   setMetric('stateEye','Unknown');setMetric('statePose','Unknown');setMetric('stateGaze','Unknown');setMetric('stateConfidence','—');
   if(state.currentMetrics===null){/* telemetry intentionally pauses without a face */}
 }
-function restoreFaceState() { state.eventTimers.faceLostStart=0;state.eventTimers.faceLostTriggered=false; }
+function restoreFaceState() {
+  const wasFaceLossAlarm = state.eventTimers.faceLostTriggered;
+  state.eventTimers.faceLostStart=0;state.eventTimers.faceLostTriggered=false;
+  if(wasFaceLossAlarm&&!state.eventTimers.eyeTriggered)alarm.clearCondition();
+}
 
 function addIncident(type,title,detail,severity,metrics,durationMs=0) {
   const id=uid('evt'),incident={id,session_id:state.currentSession?.id||null,driver_id:state.selectedDriverId||null,vehicle_id:state.selectedVehicleId||null,event_type:type,title,detail,severity,occurred_at:isoNow(),duration_ms:durationMs,acknowledged:false,metrics:metrics?{ear:metrics.ear,mar:metrics.mar,posture_score:metrics.postureScore,attention_score:metrics.attentionScore,risk_score:metrics.riskScore,pitch_delta:metrics.pitchDelta,yaw_delta:metrics.yawDelta,roll_delta:metrics.rollDelta,gaze_delta:metrics.gazeDelta,tracking_confidence:metrics.trackingConfidence}: {},source:'mediapipe-face-landmarker'};
@@ -458,6 +462,7 @@ async function stopSession() {
   const payload={ended_at:isoNow(),duration_seconds:duration,average_attention:stats.samples?stats.attentionTotal/stats.samples:null,average_posture:stats.samples?stats.postureTotal/stats.samples:null,average_risk:stats.samples?stats.riskTotal/stats.samples:null,peak_risk:stats.samples?stats.peakRisk:null,telemetry_count:stats.samples,incident_count:stats.incidents};
   await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
   state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;
+  if(state.eventTimers.faceLostTriggered&&!state.eventTimers.eyeTriggered)alarm.clearCondition();
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';$('sessionHelper').textContent='Live alerts remain active while the camera is connected. Start another session to persist telemetry.';
   saveCache();renderAll();void refreshHealth();void loadAnalytics(30);toast(`Session archived · ${payload.telemetry_count.toLocaleString()} telemetry samples saved.`,'success');
 }
@@ -659,7 +664,7 @@ function drawTrend(canvas,data) {
 
 async function exportBackup() {
   try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive 3.0.9',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  catch{const payload={application:'SentinelDrive 3.0.10',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -760,7 +765,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.9', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.10', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);

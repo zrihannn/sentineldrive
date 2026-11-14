@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SentinelDrive API",
-    version="3.0.9",
+    version="3.0.10",
     description="Local-first driver intelligence platform API",
     lifespan=lifespan,
 )
@@ -334,7 +334,7 @@ def health() -> dict[str, Any]:
             "telemetry": conn.execute("SELECT COUNT(*) c FROM telemetry").fetchone()["c"],
             "incidents": conn.execute("SELECT COUNT(*) c FROM incidents").fetchone()["c"],
         }
-    return {"status": "operational", "version": "3.0.9", "database": "sqlite", "database_path": str(DB_PATH), "counts": counts, "timestamp": now_iso()}
+    return {"status": "operational", "version": "3.0.10", "database": "sqlite", "database_path": str(DB_PATH), "counts": counts, "timestamp": now_iso()}
 
 
 @app.get("/api/bootstrap")
@@ -638,7 +638,7 @@ def export_json() -> dict[str, Any]:
     with db() as conn:
         payload = {
             "exported_at": now_iso(),
-            "application": "SentinelDrive 3.0.9",
+            "application": "SentinelDrive 3.0.10",
             "drivers": [clean_driver(r) for r in conn.execute("SELECT * FROM drivers").fetchall()],
             "vehicles": [clean_vehicle(r) for r in conn.execute("SELECT * FROM vehicles").fetchall()],
             "sessions": [clean_session(r) for r in conn.execute("SELECT * FROM sessions ORDER BY started_at DESC").fetchall()],

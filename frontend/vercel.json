@@ -4,6 +4,15 @@
   "functions": {
     "api/[...path].mjs": {
       "maxDuration": 60
+    },
+    "api/proxy.mjs": {
+      "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:first/:rest*",
+      "destination": "/api/proxy?__sd_api_path=:first/:rest*"
+    }
+  ]
 }
