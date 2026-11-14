@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.11';
-import { VisionEngine } from './vision.js?v=3.0.11';
-import { AlarmEngine } from './alarm.js?v=3.0.11';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.12';
+import { VisionEngine } from './vision.js?v=3.0.12';
+import { AlarmEngine } from './alarm.js?v=3.0.12';
 
 const $ = id => document.getElementById(id);
 const THEME_KEY = 'sentineldrive.theme';
@@ -32,7 +32,7 @@ const state = {
   health: null, storage: null, analytics: null, activeView:'command',
   currentMetrics:null, currentSession:null, sessionStartedAt:0, sessionStats:null,
   telemetryBuffer:[], lastTelemetryAt:0, lastTelemetryFlush:0,
-  liveEvents:[], selectedDriverId:localStorage.getItem('sd.os3.driver') || '',
+  liveEvents:[], selectedDriverId:'',
   selectedVehicleId:localStorage.getItem('sd.os3.vehicle') || '',
   eventTimers:{ eyeStart:0, eyeTriggered:false, eyeOpenSince:0, yawnStart:0, yawnTriggered:false, poseStart:0, poseTriggered:false, distractionStart:0, distractionTriggered:false, faceLostStart:0, faceLostTriggered:false },
   calibration:null, bootstrapped:false, online:false, currentRisk:0
@@ -103,9 +103,7 @@ async function refreshBootstrap(silent=false) {
     writePreferences(state.policies);
     saveCache();
     setDbStatus(true);
-    if (!state.selectedDriverId || !state.drivers.some(d => d.id === state.selectedDriverId)) {
-      state.selectedDriverId = state.drivers.find(d => d.status === 'active')?.id || state.drivers[0]?.id || '';
-    }
+    if (state.selectedDriverId && !state.drivers.some(d => d.id === state.selectedDriverId && d.status === 'active')) state.selectedDriverId = '';
     if (!state.selectedVehicleId || !state.vehicles.some(v => v.id === state.selectedVehicleId)) {
       state.selectedVehicleId = state.vehicles.find(v => v.status === 'active')?.id || '';
     }
@@ -219,16 +217,24 @@ function populateAssignments() {
   const driver=$('monitorDriver'),vehicle=$('monitorVehicle');
   if(!driver||!vehicle)return;
   const prevD=driver.value||state.selectedDriverId,prevV=vehicle.value||state.selectedVehicleId;
-  driver.innerHTML=state.drivers.filter(d=>d.status==='active').map(d=>`<option value="${esc(d.id)}">${esc(d.name)}${d.employee_code?` · ${esc(d.employee_code)}`:''}</option>`).join('')||'<option value="">No active driver profiles</option>';
+  const activeDrivers=state.drivers.filter(d=>d.status==='active');
+  driver.innerHTML='<option value="">Choose driver</option>'+(activeDrivers.length?activeDrivers.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}${d.employee_code?` · ${esc(d.employee_code)}`:''}</option>`).join(''):'<option value="" disabled>No active driver profiles</option>');
   vehicle.innerHTML='<option value="">No vehicle assigned</option>'+state.vehicles.filter(v=>v.status==='active').map(v=>`<option value="${esc(v.id)}">${esc(v.label)} · ${esc(v.registration)}</option>`).join('');
-  driver.value=state.drivers.some(d=>d.id===prevD&&d.status==='active')?prevD:(driver.options[0]?.value||'');
+  driver.value=activeDrivers.some(d=>d.id===prevD)?prevD:'';
+  driver.disabled=Boolean(state.currentSession);
   vehicle.value=state.vehicles.some(v=>v.id===prevV&&v.status==='active')?prevV:'';
   state.selectedDriverId=driver.value;state.selectedVehicleId=vehicle.value;
-  localStorage.setItem('sd.os3.driver',state.selectedDriverId||'');localStorage.setItem('sd.os3.vehicle',state.selectedVehicleId||'');
   const selected=state.drivers.find(d=>d.id===state.selectedDriverId);
   if(selected?.baseline) vision.setBaseline(selected.baseline);
   $('policyCalibrateBtn').disabled=!vision.streamActive||!selected;
   renderBaselineStatus();
+  updateSessionDriverPrompt();
+}
+
+function updateSessionDriverPrompt() {
+  if(state.currentSession)return;
+  const selected=state.drivers.find(d=>d.id===state.selectedDriverId&&d.status==='active');
+  $('sessionHelper').textContent=selected?`${selected.name} is selected. Confirm this is the driver before starting.`:state.drivers.some(d=>d.status==='active')?'Choose who is driving above before starting a session.':'Create an active driver profile in Driver registry before starting a session.';
 }
 
 function renderDrivers() {
@@ -434,20 +440,22 @@ async function disconnectCamera() {
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=true;
   $('sessionSamples').textContent='0';$('sessionEvents').textContent='0';$('sessionAttention').textContent='—';$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
   $('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionHelper').textContent='Live alerts are evaluated once the camera is connected. Start a session to persist continuous telemetry.';
-  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;
+  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;$('monitorDriver').disabled=false;
   $('trackingPill').classList.remove('active');$('trackingPill').innerHTML='<i></i> ENGINE STANDBY';
-  updateEngineStatus('ENGINE STANDBY');renderAll();
+  updateEngineStatus('ENGINE STANDBY');renderAll();updateSessionDriverPrompt();
   toast(sessionError ? `Camera disconnected. Session could not be archived: ${sessionError.message||sessionError}` : 'Camera disconnected.');
 }
 async function switchCamera() { try {const info=await vision.switchCamera();$('cameraSourceLabel').textContent=info.label;$('resolutionLabel').textContent=`${info.width} × ${info.height}`;toast('Camera source switched.');}catch(error){toast(error.message,'error');} }
 
 async function startSession() {
+  const driver=state.drivers.find(item=>item.id===state.selectedDriverId&&item.status==='active');
+  if(!driver){toast(state.drivers.some(item=>item.status==='active')?'Select who is driving before starting a session.':'Create an active driver profile before starting a session.','error');$('monitorDriver').focus();return;}
   if(!vision.streamActive){toast('Connect the camera before starting a session.','error');return;}
   if(!state.currentMetrics){toast('A stable face lock is required before starting a session.','error');return;}
   const id=uid('ses'),started=isoNow();
-  const record={id,driver_id:state.selectedDriverId||null,vehicle_id:state.selectedVehicleId||null,started_at:started,notes:'',meta:{vision_engine:'MediaPipe Face Landmarker',landmarks:478,telemetry_interval_ms:state.policies.telemetryInterval}};
+  const record={id,driver_id:driver.id,vehicle_id:state.selectedVehicleId||null,started_at:started,notes:'',meta:{vision_engine:'MediaPipe Face Landmarker',landmarks:478,telemetry_interval_ms:state.policies.telemetryInterval}};
   state.currentSession={...record,status:'active',telemetry_count:0,incident_count:0};state.sessionStartedAt=Date.now();state.sessionStats={samples:0,attentionTotal:0,postureTotal:0,riskTotal:0,peakRisk:0,incidents:0};state.lastTelemetryAt=0;state.lastTelemetryFlush=Date.now();state.telemetryBuffer=[];
-  $('sessionReference').value=id;$('sessionBtn').disabled=false;$('sessionBtn').classList.add('recording');$('sessionBtnText').textContent='End session';$('recordingState').textContent='RECORDING LIVE';$('recordingState').classList.add('active');$('sessionHelper').textContent='Session telemetry is being captured and written to the local database. Incident detection remains active.';
+  $('monitorDriver').disabled=true;$('sessionReference').value=id;$('sessionBtn').disabled=false;$('sessionBtn').classList.add('recording');$('sessionBtnText').textContent='End session';$('recordingState').textContent='RECORDING LIVE';$('recordingState').classList.add('active');$('sessionHelper').textContent=`Session assigned to ${driver.name}. Telemetry is being captured and saved.`;
   await apiWrite('POST','/api/sessions',record);saveCache();renderNavCounts();toast('Monitoring session started. Telemetry persistence is active.','success');
 }
 async function finishTelemetryBatch() {
@@ -493,10 +501,10 @@ async function stopSession() {
     await restoreActiveSessionRecord(session);
     await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
   }
-  state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;
+  state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;$('monitorDriver').disabled=false;$('policyCalibrateBtn').disabled=!vision.streamActive||!state.selectedDriverId;renderBaselineStatus();
   if(state.eventTimers.faceLostTriggered&&!state.eventTimers.eyeTriggered)alarm.clearCondition();
-  $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';$('sessionHelper').textContent='Live alerts remain active while the camera is connected. Start another session to persist telemetry.';
-  saveCache();renderAll();void refreshHealth();void loadAnalytics(30);toast(`Session archived · ${payload.telemetry_count.toLocaleString()} telemetry samples saved.`,'success');
+  $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
+  saveCache();renderAll();updateSessionDriverPrompt();void refreshHealth();void loadAnalytics(30);toast(`Session archived · ${payload.telemetry_count.toLocaleString()} telemetry samples saved.`,'success');
 }
 async function finishArchivedSession(sessionId) {
   const session=state.sessions.find(item=>item.id===sessionId);
@@ -696,7 +704,7 @@ function drawTrend(canvas,data) {
 
 async function exportBackup() {
   try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive 3.0.11',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  catch{const payload={application:'SentinelDrive 3.0.12',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -758,7 +766,7 @@ function bindEvents() {
       setCameraExpanded(false);
     }
   });
-  $('monitorDriver').addEventListener('change',event=>{state.selectedDriverId=event.target.value;localStorage.setItem('sd.os3.driver',state.selectedDriverId);const driver=state.drivers.find(d=>d.id===state.selectedDriverId);vision.setBaseline(driver?.baseline||null);renderBaselineStatus();$('policyCalibrateBtn').disabled=!vision.streamActive||!driver;});
+  $('monitorDriver').addEventListener('change',event=>{state.selectedDriverId=event.target.value;const driver=state.drivers.find(d=>d.id===state.selectedDriverId);vision.setBaseline(driver?.baseline||null);renderBaselineStatus();$('policyCalibrateBtn').disabled=!vision.streamActive||!driver;updateSessionDriverPrompt();});
   $('monitorVehicle').addEventListener('change',event=>{state.selectedVehicleId=event.target.value;localStorage.setItem('sd.os3.vehicle',state.selectedVehicleId);});
   $('addDriverBtn').addEventListener('click',()=>openDriverDialog());$('driverForm').addEventListener('submit',saveDriverFromForm);$('cancelDriverBtn').addEventListener('click',()=>$('driverDialog').close('cancel'));$('cancelDriverCloseBtn').addEventListener('click',()=>$('driverDialog').close('cancel'));
   $('driversTable').addEventListener('click',event=>{const edit=event.target.closest('[data-driver-edit]'),del=event.target.closest('[data-driver-delete]');if(edit)openDriverDialog(state.drivers.find(d=>d.id===edit.dataset.driverEdit));if(del)void deleteDriver(del.dataset.driverDelete);});
@@ -797,7 +805,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.11', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.12', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);
