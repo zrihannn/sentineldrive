@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.7';
-import { VisionEngine } from './vision.js?v=3.0.7';
-import { AlarmEngine } from './alarm.js?v=3.0.7';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.8';
+import { VisionEngine } from './vision.js?v=3.0.8';
+import { AlarmEngine } from './alarm.js?v=3.0.8';
 
 const $ = id => document.getElementById(id);
 const THEME_KEY = 'sentineldrive.theme';
@@ -659,7 +659,7 @@ function drawTrend(canvas,data) {
 
 async function exportBackup() {
   try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive 3.0.7',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  catch{const payload={application:'SentinelDrive 3.0.8',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -760,7 +760,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.7', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.8', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);
