@@ -1,1 +1,1 @@
-"""SentinelDrive OS backend package."""
+"""SentinelDrive backend package."""

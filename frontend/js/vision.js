@@ -128,11 +128,15 @@ export class VisionEngine {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
-    this.stream?.getTracks().forEach(track => track.stop());
+    const stream = this.stream;
     this.stream = null;
+    stream?.getTracks().forEach(track => track.stop());
     this.video.srcObject = null;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.lastMetrics = null;
+    this.cameraId = null;
+    this.cameras = [];
+    this.processing = false;
     if (closeModel && this.landmarker) { this.landmarker.close(); this.landmarker = null; }
     this.onLost();
     this.onStatus('ENGINE STANDBY');

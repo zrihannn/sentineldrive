@@ -78,7 +78,7 @@ def test_driver_vehicle_session_telemetry_and_incident_lifecycle(client):
     assert acknowledged.status_code == 200
     assert acknowledged.json()["acknowledged"] is True
 
-    finished = client.post("/api/sessions/session-integration-01/finish", json={
+    finished = client.post("/api/sessions/session-integration-01/end", json={
         "duration_seconds": 5,
         "average_attention": 92,
         "average_posture": 94,
@@ -89,6 +89,11 @@ def test_driver_vehicle_session_telemetry_and_incident_lifecycle(client):
     })
     assert finished.status_code == 200
     assert finished.json()["status"] == "completed"
+
+    # Preserve the existing endpoint for clients already using it.
+    legacy_finished = client.post("/api/sessions/session-integration-01/finish", json={"duration_seconds": 5})
+    assert legacy_finished.status_code == 200
+    assert legacy_finished.json()["status"] == "completed"
 
     analytics = client.get("/api/analytics?days=30").json()
     assert analytics["samples"] == 5

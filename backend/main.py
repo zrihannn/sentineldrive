@@ -30,8 +30,8 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="SentinelDrive OS API",
-    version="3.0.5",
+    title="SentinelDrive API",
+    version="3.0.7",
     description="Local-first driver intelligence platform API",
     lifespan=lifespan,
 )
@@ -255,7 +255,7 @@ def init_db() -> None:
                 "INSERT INTO drivers(id,name,employee_code,status,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 ("driver_primary", "Primary Driver", "SD-001", "active", "Default local driver profile. Edit this profile with your own details.", stamp, stamp),
             )
-        activity_log(conn, "system", "SentinelDrive OS initialised", "Local database is ready.", "success")
+        activity_log(conn, "system", "SentinelDrive initialised", "Local database is ready.", "success")
 
 
 class DriverPayload(BaseModel):
@@ -334,7 +334,7 @@ def health() -> dict[str, Any]:
             "telemetry": conn.execute("SELECT COUNT(*) c FROM telemetry").fetchone()["c"],
             "incidents": conn.execute("SELECT COUNT(*) c FROM incidents").fetchone()["c"],
         }
-    return {"status": "operational", "version": "3.0.5", "database": "sqlite", "database_path": str(DB_PATH), "counts": counts, "timestamp": now_iso()}
+    return {"status": "operational", "version": "3.0.7", "database": "sqlite", "database_path": str(DB_PATH), "counts": counts, "timestamp": now_iso()}
 
 
 @app.get("/api/bootstrap")
@@ -481,6 +481,7 @@ def create_session(payload: SessionPayload) -> dict[str, Any]:
 
 
 @app.post("/api/sessions/{session_id}/finish")
+@app.post("/api/sessions/{session_id}/end")
 def finish_session(session_id: str, payload: FinishSessionPayload) -> dict[str, Any]:
     with db() as conn:
         row = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
@@ -637,7 +638,7 @@ def export_json() -> dict[str, Any]:
     with db() as conn:
         payload = {
             "exported_at": now_iso(),
-            "application": "SentinelDrive OS 3.0.5",
+            "application": "SentinelDrive 3.0.7",
             "drivers": [clean_driver(r) for r in conn.execute("SELECT * FROM drivers").fetchall()],
             "vehicles": [clean_vehicle(r) for r in conn.execute("SELECT * FROM vehicles").fetchall()],
             "sessions": [clean_session(r) for r in conn.execute("SELECT * FROM sessions ORDER BY started_at DESC").fetchall()],

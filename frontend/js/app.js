@@ -1,8 +1,9 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.6';
-import { VisionEngine } from './vision.js?v=3.0.6';
-import { AlarmEngine } from './alarm.js?v=3.0.6';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.7';
+import { VisionEngine } from './vision.js?v=3.0.7';
+import { AlarmEngine } from './alarm.js?v=3.0.7';
 
 const $ = id => document.getElementById(id);
+const THEME_KEY = 'sentineldrive.theme';
 const clamp = (value,min,max) => Math.max(min,Math.min(max,value));
 const average = values => values.length ? values.reduce((sum,value)=>sum+value,0)/values.length : 0;
 const median = values => { if(!values.length)return 0; const a=[...values].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2; };
@@ -44,6 +45,20 @@ const vision = new VisionEngine({
   onStatus: status => updateEngineStatus(status)
 });
 const alarm = new AlarmEngine({ onState: status => renderAlarmState(status) });
+
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const toggle = $('themeToggle');
+  if (toggle) {
+    toggle.setAttribute('aria-pressed', String(dark));
+    toggle.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} theme`);
+    toggle.title = `Switch to ${dark ? 'light' : 'dark'} theme`;
+    toggle.querySelector('.theme-toggle-icon').textContent = dark ? '☀' : '☾';
+    toggle.querySelector('.theme-toggle-label').textContent = dark ? 'Light' : 'Dark';
+  }
+  $('themeColorMeta')?.setAttribute('content', dark ? '#111a17' : '#f4f6f2');
+}
 
 function toast(message, kind='info') {
   const node=document.createElement('div'); node.className=`toast ${kind==='error'?'error':kind==='success'?'success':''}`; node.textContent=message;
@@ -305,7 +320,7 @@ function updateMetricCards(m) {
 function updateDriverState(m) {
   setMetric('riskScore',String(m.riskScore));
   const color=m.riskScore>=70?'#bd6659':m.riskScore>=40?'#c69a61':'#69a77d';
-  $('riskMeter').style.background=`conic-gradient(${color} ${m.riskScore*3.6}deg,#e9eee8 0deg)`;
+  $('riskMeter').style.background=`conic-gradient(${color} ${m.riskScore*3.6}deg,var(--risk-track,#e9eee8) 0deg)`;
   $('riskLabel').textContent=m.riskScore>=70?'Elevated driver risk':m.riskScore>=40?'Attention needs review':'Stable driver state';
   $('riskDetail').textContent=m.eyesClosed?'Sustained eye closure is being monitored.':m.attentionScore<65?'Gaze or head pose is outside the calibrated forward range.':'No high-risk signal currently detected.';
   $('driverStateTag').textContent=m.riskScore>=70?'ELEVATED':m.riskScore>=40?'WATCH':'ATTENTIVE';$('driverStateTag').classList.toggle('active',m.riskScore<40);
@@ -390,11 +405,35 @@ async function connectCamera() {
   }
 }
 async function disconnectCamera() {
-  if(state.currentSession) await stopSession();
+  let sessionError = null;
+  if(state.currentSession) {
+    try { await stopSession(); } catch(error) { sessionError = error; }
+  }
   if(state.calibration) cancelCalibration();
-  alarm.stop();vision.stop(true);$('cameraStage').classList.remove('has-feed');$('cameraDot').classList.remove('online');$('cameraSourceLabel').textContent='No camera connected';
-  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;$('trackingPill').classList.remove('active');$('trackingPill').innerHTML='<i></i> ENGINE STANDBY';$('recordingState').textContent='NOT RECORDING';
-  resetRuleTimers();updateEngineStatus('ENGINE STANDBY');toast('Camera disconnected.');
+  alarm.stop();
+  state.currentMetrics = null;
+  state.currentSession = null;
+  state.sessionStats = null;
+  state.sessionStartedAt = 0;
+  state.telemetryBuffer = [];
+  resetRuleTimers();
+  vision.stop(true);
+  $('cameraStage').classList.remove('has-feed','expanded');
+  document.body.classList.remove('camera-expanded-open');
+  $('cameraDot').classList.remove('online');$('liveNavDot').classList.remove('active');$('cameraSourceLabel').textContent='No camera connected';
+  $('resolutionLabel').textContent='—';$('faceLockLabel').textContent='SEARCHING';$('fpsLabel').textContent='0';$('inferenceLabel').textContent='— ms';$('landmarkCount').textContent='—';$('cameraLost').classList.remove('visible');
+  ['earValue','marValue','postureValue','attentionValue'].forEach(id=>$(id).textContent='—');
+  ['earState','marState','postureState','attentionState'].forEach(id=>$(id).textContent='Waiting for face signal');
+  ['earBar','marBar','postureBar','attentionBar'].forEach(id=>$(id).style.width='0%');
+  $('stateEye').textContent='Unknown';$('statePose').textContent='Unknown';$('stateGaze').textContent='Unknown';$('stateConfidence').textContent='—';
+  $('riskScore').textContent='—';$('riskLabel').textContent='Awaiting signal';$('riskDetail').textContent='Connect the camera and establish a stable face lock.';$('riskMeter').style.background='conic-gradient(#65a77c 0deg,var(--risk-track,#e9eee8) 0deg)';
+  $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=true;
+  $('sessionSamples').textContent='0';$('sessionEvents').textContent='0';$('sessionAttention').textContent='—';$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
+  $('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionHelper').textContent='Live alerts are evaluated once the camera is connected. Start a session to persist continuous telemetry.';
+  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;
+  $('trackingPill').classList.remove('active');$('trackingPill').innerHTML='<i></i> ENGINE STANDBY';
+  updateEngineStatus('ENGINE STANDBY');renderAll();
+  toast(sessionError ? `Camera disconnected. Session could not be archived: ${sessionError.message||sessionError}` : 'Camera disconnected.');
 }
 async function switchCamera() { try {const info=await vision.switchCamera();$('cameraSourceLabel').textContent=info.label;$('resolutionLabel').textContent=`${info.width} × ${info.height}`;toast('Camera source switched.');}catch(error){toast(error.message,'error');} }
 
@@ -417,7 +456,7 @@ async function stopSession() {
   await finishTelemetryBatch();
   const session=state.currentSession,stats=state.sessionStats,duration=(Date.now()-state.sessionStartedAt)/1000;
   const payload={ended_at:isoNow(),duration_seconds:duration,average_attention:stats.samples?stats.attentionTotal/stats.samples:null,average_posture:stats.samples?stats.postureTotal/stats.samples:null,average_risk:stats.samples?stats.riskTotal/stats.samples:null,peak_risk:stats.samples?stats.peakRisk:null,telemetry_count:stats.samples,incident_count:stats.incidents};
-  await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/finish`,payload);
+  await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
   state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';$('sessionHelper').textContent='Live alerts remain active while the camera is connected. Start another session to persist telemetry.';
   saveCache();renderAll();void refreshHealth();void loadAnalytics(30);toast(`Session archived · ${payload.telemetry_count.toLocaleString()} telemetry samples saved.`,'success');
@@ -443,7 +482,7 @@ async function finishArchivedSession(sessionId) {
   };
 
   try{
-    const result=await apiWrite('POST',`/api/sessions/${encodeURIComponent(sessionId)}/finish`,payload);
+    const result=await apiWrite('POST',`/api/sessions/${encodeURIComponent(sessionId)}/end`,payload);
     session.status='completed';
     session.ended_at=endedAt;
     session.duration_seconds=duration;
@@ -619,8 +658,8 @@ function drawTrend(canvas,data) {
 }
 
 async function exportBackup() {
-  try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-os-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive OS 3.0',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-os-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
+  catch{const payload={application:'SentinelDrive 3.0.7',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -654,6 +693,12 @@ function renderPalette(query){
 function globalSearch(query){if(!query.trim())return;navigate('events');$('eventSearch').value=query;renderEvents();}
 
 function bindEvents() {
+  applyTheme(document.documentElement.dataset.theme || 'light');
+  $('themeToggle').addEventListener('click',()=>{
+    const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
+    localStorage.setItem(THEME_KEY,next);
+    applyTheme(next);
+  });
   document.querySelectorAll('.nav-link,[data-goto]').forEach(node=>node.addEventListener('click',()=>navigate(node.dataset.view||node.dataset.goto)));
   $('enableCameraBtn').addEventListener('click',connectCamera);$('stopCameraBtn').addEventListener('click',()=>void disconnectCamera());$('switchCameraBtn').addEventListener('click',switchCamera);
   $('sessionBtn').addEventListener('click',()=>state.currentSession?void stopSession().catch(error=>toast(`Could not end session: ${error.message||error}`,'error')):void startSession().catch(error=>toast(`Could not start session: ${error.message||error}`,'error')));$('calibrateBtn').addEventListener('click',startCalibration);$('policyCalibrateBtn').addEventListener('click',startCalibration);$('cancelCalibrationBtn').addEventListener('click',cancelCalibration);
@@ -715,7 +760,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.6', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.7', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);
@@ -729,7 +774,7 @@ async function bootstrap() {
   setInterval(updateClock, 1000);
   setInterval(updateSessionClock, 500);
   setInterval(() => { if (state.activeView === 'journal') void refreshHealth(); }, 15000);
-  if (online) toast('SentinelDrive OS is operational. Local database connected.', 'success');
+  if (online) toast('SentinelDrive is operational. Local database connected.', 'success');
   else toast('SentinelDrive opened in local cache mode. Backend connection is unavailable.', 'error');
 
   // Load larger tables and analytics after the shell is visible. They must never hold the splash screen.
