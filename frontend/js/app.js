@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.10';
-import { VisionEngine } from './vision.js?v=3.0.10';
-import { AlarmEngine } from './alarm.js?v=3.0.10';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.11';
+import { VisionEngine } from './vision.js?v=3.0.11';
+import { AlarmEngine } from './alarm.js?v=3.0.11';
 
 const $ = id => document.getElementById(id);
 const THEME_KEY = 'sentineldrive.theme';
@@ -452,15 +452,47 @@ async function startSession() {
 }
 async function finishTelemetryBatch() {
   if(!state.currentSession||!state.telemetryBuffer.length)return;
-  const id=state.currentSession.id,buffer=state.telemetryBuffer.splice(0,state.telemetryBuffer.length);
-  await apiWrite('POST',`/api/sessions/${encodeURIComponent(id)}/telemetry`,{samples:buffer});
+  const session=state.currentSession,buffer=state.telemetryBuffer.splice(0,state.telemetryBuffer.length);
+  try {
+    await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/telemetry`,{samples:buffer});
+  } catch(error) {
+    state.telemetryBuffer.unshift(...buffer);
+    if(!isMissingSessionError(error))throw error;
+    await restoreActiveSessionRecord(session);
+    const retryBuffer=state.telemetryBuffer.splice(0,state.telemetryBuffer.length);
+    try {
+      if(retryBuffer.length)await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/telemetry`,{samples:retryBuffer});
+    } catch(retryError) {
+      state.telemetryBuffer.unshift(...retryBuffer);
+      throw retryError;
+    }
+  }
+}
+function isMissingSessionError(error) {
+  return /API 404:.*Session not found/i.test(String(error?.message||error));
+}
+async function restoreActiveSessionRecord(session) {
+  return apiWrite('POST','/api/sessions',{
+    id:session.id,
+    driver_id:session.driver_id||null,
+    vehicle_id:session.vehicle_id||null,
+    started_at:session.started_at,
+    notes:session.notes||'',
+    meta:session.meta||{}
+  });
 }
 async function stopSession() {
   if(!state.currentSession)return;
   await finishTelemetryBatch();
   const session=state.currentSession,stats=state.sessionStats,duration=(Date.now()-state.sessionStartedAt)/1000;
   const payload={ended_at:isoNow(),duration_seconds:duration,average_attention:stats.samples?stats.attentionTotal/stats.samples:null,average_posture:stats.samples?stats.postureTotal/stats.samples:null,average_risk:stats.samples?stats.riskTotal/stats.samples:null,peak_risk:stats.samples?stats.peakRisk:null,telemetry_count:stats.samples,incident_count:stats.incidents};
-  await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
+  try {
+    await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
+  } catch(error) {
+    if(!isMissingSessionError(error))throw error;
+    await restoreActiveSessionRecord(session);
+    await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
+  }
   state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;
   if(state.eventTimers.faceLostTriggered&&!state.eventTimers.eyeTriggered)alarm.clearCondition();
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';$('sessionHelper').textContent='Live alerts remain active while the camera is connected. Start another session to persist telemetry.';
@@ -664,7 +696,7 @@ function drawTrend(canvas,data) {
 
 async function exportBackup() {
   try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive 3.0.10',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  catch{const payload={application:'SentinelDrive 3.0.11',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -765,7 +797,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.10', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.11', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);

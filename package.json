@@ -1,6 +1,6 @@
 {
   "name": "sentineldrive",
-  "version": "3.0.10",
+  "version": "3.0.11",
   "private": true,
   "type": "module",
   "description": "Local-first driver intelligence operations platform"
