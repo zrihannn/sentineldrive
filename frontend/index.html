@@ -13,7 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=3.0.12">
+  <link rel="stylesheet" href="/styles.css?v=3.0.13">
 </head>
 <body>
 <div class="boot-screen" id="bootScreen"><div class="boot-mark"><span></span><span></span><span></span></div><strong>sentinel<span>drive</span></strong><small id="bootMessage">INITIALISING DRIVER INTELLIGENCE PLATFORM</small><div class="boot-progress"><i id="bootProgressFill"></i></div></div>
@@ -42,7 +42,7 @@
     <div class="sidebar-bottom">
       <div class="local-card"><div class="local-card-top"><span class="local-icon">⌑</span><span class="secure-tag"><i></i> LOCAL CORE</span></div><strong>Private processing</strong><p>Face landmarks are analysed on this device. Only numeric telemetry and event records are persisted.</p></div>
       <div class="sidebar-profile"><div class="profile-avatar">SD</div><div><strong>Local workspace</strong><small id="sidebarDbStatus">Connecting database…</small></div><span class="profile-more">•••</span></div>
-      <div class="sidebar-version">SENTINELDRIVE <b>3.0.12</b></div>
+      <div class="sidebar-version">SENTINELDRIVE <b>3.0.13</b></div>
     </div>
   </aside>
 
@@ -99,7 +99,7 @@
 
     <section class="view" id="view-journal"><div class="page-head"><div><div class="eyebrow"><span class="eyebrow-marker"></span> PLATFORM / OBSERVABILITY</div><h1>System journal<span class="title-period">.</span></h1><p class="page-lede">Database health, sync activity, system changes and data integrity operations.</p></div><button class="button button-secondary" id="refreshSystemBtn">Refresh system ↻</button></div><div class="system-status-grid" id="systemStatusGrid"></div><div class="journal-grid"><section class="panel journal-main"><div class="panel-head"><div><span class="section-label">AUDIT JOURNAL</span><h2>System activity log</h2></div><select id="journalCategory"><option value="all">All activity</option><option value="system">System</option><option value="sessions">Sessions</option><option value="safety">Safety</option><option value="drivers">Drivers</option><option value="fleet">Fleet</option><option value="configuration">Configuration</option></select></div><div id="journalTable" class="journal-table"></div></section><aside class="system-side"><section class="panel storage-panel"><span class="section-label">PERSISTENCE LAYER</span><h2>Data footprint</h2><div class="storage-figure" id="storageFigure">—</div><p>SQLite database size on this machine.</p><div class="storage-breakdown" id="storageBreakdown"></div></section><section class="panel backup-panel"><span class="section-label">DATA MANAGEMENT</span><h2>Backup & recovery</h2><p>Create a portable JSON backup of drivers, vehicles, sessions, events, telemetry and policy settings.</p><button class="button button-primary full-width" id="backupBtn">Download full backup ↗</button><label class="button button-secondary full-width import-label">Restore from backup<input type="file" id="restoreFile" accept="application/json"></label><small>Restore merges records by ID. Existing records are not deleted.</small></section><section class="panel connection-panel"><span class="section-label">CONNECTION STATE</span><div class="connection-row"><i class="mini-dot online" id="apiStatusDot"></i><b id="apiStatusText">API CONNECTED</b></div><p id="syncStatusText">Browser cache and database are aligned.</p><button class="text-button" id="syncNowBtn">Sync offline queue ↻</button></section></aside></div></section>
 
-    <footer class="app-footer"><span><b>SENTINELDRIVE</b> <i>3.0.12</i></span><span>LOCAL-FIRST DRIVER INTELLIGENCE <b>·</b> <span id="footerDbStatus">DATABASE CONNECTING</span></span></footer>
+    <footer class="app-footer"><span><b>SENTINELDRIVE</b> <i>3.0.13</i></span><span>LOCAL-FIRST DRIVER INTELLIGENCE <b>·</b> <span id="footerDbStatus">DATABASE CONNECTING</span></span></footer>
   </main>
 </div>
 
@@ -135,6 +135,6 @@
   window.setTimeout(() => showBootDiagnostic('The frontend has not completed initialisation after 12 seconds. Reload with Ctrl + Shift + R. If it persists, open DevTools → Console and send the first red error.'), 12000);
 })();
 </script>
-<script type="module" src="/js/app.js?v=3.0.12"></script>
+<script type="module" src="/js/app.js?v=3.0.13"></script>
 </body>
 </html>

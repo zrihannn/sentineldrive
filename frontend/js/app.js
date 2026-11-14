@@ -1,6 +1,6 @@
-import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.12';
-import { VisionEngine } from './vision.js?v=3.0.12';
-import { AlarmEngine } from './alarm.js?v=3.0.12';
+import { apiGet, apiWrite, readCache, writeCache, readPreferences, writePreferences, flushOutbox, queueSize, downloadBlob } from './api.js?v=3.0.13';
+import { VisionEngine } from './vision.js?v=3.0.13';
+import { AlarmEngine } from './alarm.js?v=3.0.13';
 
 const $ = id => document.getElementById(id);
 const THEME_KEY = 'sentineldrive.theme';
@@ -25,15 +25,17 @@ const DEFAULT_POLICIES = {
 };
 
 const cache = readCache() || {};
+const cachedActiveSession = cache.currentSession?.status === 'active' ? cache.currentSession : null;
 const state = {
   drivers: cache.drivers || [], vehicles: cache.vehicles || [], sessions: cache.sessions || [],
   incidents: cache.incidents || [], activity: cache.activity || [],
   policies: readPreferences({ ...DEFAULT_POLICIES, ...(cache.policies || {}) }),
   health: null, storage: null, analytics: null, activeView:'command',
-  currentMetrics:null, currentSession:null, sessionStartedAt:0, sessionStats:null,
-  telemetryBuffer:[], lastTelemetryAt:0, lastTelemetryFlush:0,
-  liveEvents:[], selectedDriverId:'',
-  selectedVehicleId:localStorage.getItem('sd.os3.vehicle') || '',
+  currentMetrics:null, currentSession:cachedActiveSession, sessionStartedAt:cachedActiveSession?(Date.parse(cachedActiveSession.started_at)||Date.now()):0,
+  sessionStats:cachedActiveSession?(cache.sessionStats||{samples:0,attentionTotal:0,postureTotal:0,riskTotal:0,peakRisk:0,incidents:0}):null,
+  telemetryBuffer:cache.telemetryBuffer||[], lastTelemetryAt:0, lastTelemetryFlush:0,
+  liveEvents:[], selectedDriverId:cachedActiveSession?.driver_id||'',
+  selectedVehicleId:cachedActiveSession?.vehicle_id||localStorage.getItem('sd.os3.vehicle') || '',
   eventTimers:{ eyeStart:0, eyeTriggered:false, eyeOpenSince:0, yawnStart:0, yawnTriggered:false, poseStart:0, poseTriggered:false, distractionStart:0, distractionTriggered:false, faceLostStart:0, faceLostTriggered:false },
   calibration:null, bootstrapped:false, online:false, currentRisk:0
 };
@@ -81,7 +83,77 @@ function updateEngineStatus(label) {
   $('trackingPill').classList.toggle('active',active && label.includes('READY'));
 }
 function saveCache() {
-  writeCache({ drivers:state.drivers,vehicles:state.vehicles,sessions:state.sessions,incidents:state.incidents,activity:state.activity,policies:state.policies, cachedAt:isoNow() });
+  writeCache({ drivers:state.drivers,vehicles:state.vehicles,sessions:state.sessions,incidents:state.incidents,activity:state.activity,policies:state.policies,currentSession:state.currentSession,sessionStats:state.sessionStats,telemetryBuffer:state.telemetryBuffer,cachedAt:isoNow() });
+}
+function recordTime(record) {
+  const value=Date.parse(record?.updated_at||record?.created_at||'');
+  return Number.isFinite(value)?value:0;
+}
+function mergeCachedRecords(localRecords,remoteRecords,preferLocal=false) {
+  const merged=new Map();
+  for(const record of localRecords||[])if(record?.id)merged.set(record.id,record);
+  for(const record of remoteRecords||[]){
+    if(!record?.id)continue;
+    const local=merged.get(record.id);
+    if(!local||(!preferLocal&&recordTime(record)>=recordTime(local)))merged.set(record.id,record);
+  }
+  return [...merged.values()];
+}
+function mergeRegistryRecords(localRecords,remoteRecords) {
+  const merged=new Map();
+  for(const record of localRecords||[])if(record?.id)merged.set(record.id,record);
+  for(const record of remoteRecords||[]){
+    if(!record?.id)continue;
+    const local=merged.get(record.id);
+    const databaseWasReset=Boolean(local?.created_at&&record.created_at&&local.created_at!==record.created_at);
+    if(!local||(!databaseWasReset&&recordTime(record)>=recordTime(local)))merged.set(record.id,record);
+  }
+  return [...merged.values()];
+}
+function driverPayload(driver) {
+  return {name:driver.name||'Imported driver',employee_code:driver.employee_code||'',license_ref:driver.license_ref||'',phone:driver.phone||'',email:driver.email||'',status:driver.status||'active',notes:driver.notes||'',baseline:driver.baseline||null};
+}
+function vehiclePayload(vehicle) {
+  return {label:vehicle.label||'Imported vehicle',registration:vehicle.registration||'',make_model:vehicle.make_model||'',vehicle_type:vehicle.vehicle_type||'Car',status:vehicle.status||'active',notes:vehicle.notes||''};
+}
+function samePayload(left,right,buildPayload) {
+  const a=buildPayload(left),b=buildPayload(right);
+  return Object.keys(a).every(key=>JSON.stringify(a[key])===JSON.stringify(b[key]));
+}
+async function restoreCachedRegistry(localDrivers,localVehicles,remoteDrivers,remoteVehicles) {
+  const remoteDriverIds=new Set((remoteDrivers||[]).map(item=>item.id));
+  const remoteVehicleIds=new Set((remoteVehicles||[]).map(item=>item.id));
+  const missingDrivers=(localDrivers||[]).filter(item=>item.id&&!remoteDriverIds.has(item.id));
+  const missingVehicles=(localVehicles||[]).filter(item=>item.id&&!remoteVehicleIds.has(item.id));
+  if(missingDrivers.length||missingVehicles.length)await apiWrite('POST','/api/import/json',{drivers:missingDrivers,vehicles:missingVehicles});
+  for(const driver of localDrivers||[]){
+    const remote=(remoteDrivers||[]).find(item=>item.id===driver.id);
+    if(remote){
+      const databaseWasReset=Boolean(driver.created_at&&remote.created_at&&driver.created_at!==remote.created_at);
+      const profileDiffers=!samePayload(driver,remote,driverPayload);
+      if(!profileDiffers){
+        if(databaseWasReset){driver.created_at=remote.created_at;driver.updated_at=remote.updated_at;const current=state.drivers.find(item=>item.id===driver.id);if(current){current.created_at=remote.created_at;current.updated_at=remote.updated_at;}}
+        continue;
+      }
+      if(!databaseWasReset&&recordTime(driver)<=recordTime(remote))continue;
+      const restored=await apiWrite('PUT',`/api/drivers/${encodeURIComponent(driver.id)}`,driverPayload(driver));
+      if(restored?.id){Object.assign(driver,restored);const current=state.drivers.find(item=>item.id===driver.id);if(current)Object.assign(current,driver);}
+    }
+  }
+  for(const vehicle of localVehicles||[]){
+    const remote=(remoteVehicles||[]).find(item=>item.id===vehicle.id);
+    if(remote){
+      const databaseWasReset=Boolean(vehicle.created_at&&remote.created_at&&vehicle.created_at!==remote.created_at);
+      const profileDiffers=!samePayload(vehicle,remote,vehiclePayload);
+      if(!profileDiffers){
+        if(databaseWasReset){vehicle.created_at=remote.created_at;vehicle.updated_at=remote.updated_at;const current=state.vehicles.find(item=>item.id===vehicle.id);if(current){current.created_at=remote.created_at;current.updated_at=remote.updated_at;}}
+        continue;
+      }
+      if(!databaseWasReset&&recordTime(vehicle)<=recordTime(remote))continue;
+      const restored=await apiWrite('PUT',`/api/vehicles/${encodeURIComponent(vehicle.id)}`,vehiclePayload(vehicle));
+      if(restored?.id){Object.assign(vehicle,restored);const current=state.vehicles.find(item=>item.id===vehicle.id);if(current)Object.assign(current,vehicle);}
+    }
+  }
 }
 function setBootMessage(message, progress) {
   const label = $('bootMessage');
@@ -91,16 +163,37 @@ function setBootMessage(message, progress) {
 }
 
 async function refreshBootstrap(silent=false) {
+  const localCache=readCache()||{};
   try {
     setBootMessage('CONNECTING TO LOCAL DATABASE', 35);
     const data = await apiGet('/api/bootstrap', { timeoutMs: 8000 });
-    state.drivers = data.drivers || [];
-    state.vehicles = data.vehicles || [];
-    state.sessions = data.sessions || [];
+    const remoteDrivers=Array.isArray(data.drivers)?data.drivers:[];
+    const remoteVehicles=Array.isArray(data.vehicles)?data.vehicles:[];
+    const cachedDrivers=Array.isArray(localCache.drivers)?localCache.drivers:[];
+    const cachedVehicles=Array.isArray(localCache.vehicles)?localCache.vehicles:[];
+    state.drivers=mergeRegistryRecords(cachedDrivers,remoteDrivers);
+    state.vehicles=mergeRegistryRecords(cachedVehicles,remoteVehicles);
+    state.sessions = mergeCachedRecords(localCache.sessions,data.sessions||[]);
     state.incidents = data.incidents || [];
     state.activity = data.activity || [];
     state.policies = { ...DEFAULT_POLICIES, ...(data.policies || {}) };
+    if(state.currentSession){
+      const serverSession=(data.sessions||[]).find(item=>item.id===state.currentSession.id);
+      if(serverSession?.status==='completed'){
+        state.sessions=mergeCachedRecords(state.sessions,[serverSession]);
+        state.currentSession=null;state.sessionStats=null;state.telemetryBuffer=[];
+      }
+    }
     writePreferences(state.policies);
+    try {
+      await restoreCachedRegistry(cachedDrivers,cachedVehicles,remoteDrivers,remoteVehicles);
+    } catch(error) {
+      console.warn('SentinelDrive cached registry restore deferred:',error);
+    }
+    if(state.currentSession&&!state.sessions.some(item=>item.id===state.currentSession.id&&item.status==='active')){
+      try { await restoreActiveSessionRecord(state.currentSession); }
+      catch(error) { console.warn('SentinelDrive active session restore deferred:',error); }
+    }
     saveCache();
     setDbStatus(true);
     if (state.selectedDriverId && !state.drivers.some(d => d.id === state.selectedDriverId && d.status === 'active')) state.selectedDriverId = '';
@@ -113,12 +206,12 @@ async function refreshBootstrap(silent=false) {
   } catch (error) {
     console.warn('SentinelDrive bootstrap API unavailable:', error);
     setDbStatus(false);
-    if (!state.drivers.length && cache.drivers) {
-      state.drivers = cache.drivers;
-      state.vehicles = cache.vehicles || [];
-      state.sessions = cache.sessions || [];
-      state.incidents = cache.incidents || [];
-      state.activity = cache.activity || [];
+    if (!state.drivers.length && localCache.drivers) {
+      state.drivers = localCache.drivers;
+      state.vehicles = localCache.vehicles || [];
+      state.sessions = localCache.sessions || [];
+      state.incidents = localCache.incidents || [];
+      state.activity = localCache.activity || [];
     }
     if (!silent) toast('Database connection unavailable. The local cache is loaded; new records will queue for sync.', 'error');
     setBootMessage('STARTING FROM LOCAL CACHE', 70);
@@ -134,7 +227,13 @@ async function hydrateWorkspaceData() {
   ];
   const results = await Promise.allSettled(jobs.map(([, path]) => apiGet(path, { timeoutMs: 7000 })));
   results.forEach((result, index) => {
-    if (result.status === 'fulfilled') state[jobs[index][0]] = result.value;
+    if (result.status === 'fulfilled') {
+      state[jobs[index][0]] = mergeCachedRecords(state[jobs[index][0]],result.value);
+      if(jobs[index][0]==='sessions'&&state.currentSession){
+        const current=state.sessions.find(item=>item.id===state.currentSession.id);
+        if(current?.status==='completed'){state.currentSession=null;state.sessionStats=null;state.telemetryBuffer=[];}
+      }
+    }
     else console.warn(`SentinelDrive optional startup request failed (${jobs[index][0]}):`, result.reason);
   });
   saveCache();
@@ -178,6 +277,29 @@ function renderAll() {
   populateAssignments();
   renderCommand();renderDrivers();renderVehicles();renderSessions();renderEvents();renderPolicyForm();renderJournal();
   renderNavCounts();
+  syncSessionControls();
+}
+function syncSessionControls() {
+  const session=state.currentSession;
+  if(!session){
+    $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';
+    $('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';
+    $('recordingState').classList.remove('active');$('sessionReference').value='';
+    $('sessionDuration').textContent='00:00:00';$('sessionSamples').textContent='0';
+    $('sessionEvents').textContent='0';$('sessionAttention').textContent='—';
+    return;
+  }
+  const stats=state.sessionStats||{samples:0,incidents:0,attentionTotal:0};
+  state.sessionStats=stats;
+  $('sessionBtn').classList.add('recording');$('sessionBtnText').textContent='End session';
+  $('sessionBtn').disabled=false;$('recordingState').textContent=vision.streamActive?'RECORDING LIVE':'SESSION ACTIVE';
+  $('recordingState').classList.add('active');$('sessionReference').value=session.id;
+  $('sessionDuration').textContent=fmtDuration((Date.now()-state.sessionStartedAt)/1000);
+  $('sessionSamples').textContent=Number(session.telemetry_count||stats.samples||0).toLocaleString();
+  $('sessionEvents').textContent=Number(session.incident_count||stats.incidents||0).toLocaleString();
+  $('sessionAttention').textContent=stats.samples?`${Math.round(stats.attentionTotal/stats.samples)}/100`:'—';
+  $('monitorDriver').disabled=true;
+  $('sessionHelper').textContent=`Session assigned to ${nameForDriver(session.driver_id)}. Reconnect the camera to resume monitoring, or end this session here.`;
 }
 function renderNavCounts() {
   $('driverNavCount').textContent=state.drivers.length;
@@ -422,10 +544,12 @@ async function disconnectCamera() {
   if(state.calibration) cancelCalibration();
   alarm.stop();
   state.currentMetrics = null;
-  state.currentSession = null;
-  state.sessionStats = null;
-  state.sessionStartedAt = 0;
-  state.telemetryBuffer = [];
+  if(!sessionError){
+    state.currentSession = null;
+    state.sessionStats = null;
+    state.sessionStartedAt = 0;
+    state.telemetryBuffer = [];
+  }
   resetRuleTimers();
   vision.stop(true);
   $('cameraStage').classList.remove('has-feed','expanded');
@@ -437,12 +561,13 @@ async function disconnectCamera() {
   ['earBar','marBar','postureBar','attentionBar'].forEach(id=>$(id).style.width='0%');
   $('stateEye').textContent='Unknown';$('statePose').textContent='Unknown';$('stateGaze').textContent='Unknown';$('stateConfidence').textContent='—';
   $('riskScore').textContent='—';$('riskLabel').textContent='Awaiting signal';$('riskDetail').textContent='Connect the camera and establish a stable face lock.';$('riskMeter').style.background='conic-gradient(#65a77c 0deg,var(--risk-track,#e9eee8) 0deg)';
-  $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=true;
-  $('sessionSamples').textContent='0';$('sessionEvents').textContent='0';$('sessionAttention').textContent='—';$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
-  $('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionHelper').textContent='Live alerts are evaluated once the camera is connected. Start a session to persist continuous telemetry.';
-  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;$('monitorDriver').disabled=false;
+  $('sessionBtn').disabled=!state.currentSession;$('sessionSamples').textContent='0';$('sessionEvents').textContent='0';$('sessionAttention').textContent='—';
+  $('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
+  $('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');
+  if(!state.currentSession)$('sessionHelper').textContent='Live alerts are evaluated once the camera is connected. Start a session to persist continuous telemetry.';
+  $('enableCameraBtn').disabled=false;$('enableCameraBtn').textContent='Enable camera ↗';$('stopCameraBtn').disabled=true;$('switchCameraBtn').disabled=true;$('calibrateBtn').disabled=true;$('policyCalibrateBtn').disabled=true;$('monitorDriver').disabled=Boolean(state.currentSession);
   $('trackingPill').classList.remove('active');$('trackingPill').innerHTML='<i></i> ENGINE STANDBY';
-  updateEngineStatus('ENGINE STANDBY');renderAll();updateSessionDriverPrompt();
+  updateEngineStatus('ENGINE STANDBY');saveCache();renderAll();updateSessionDriverPrompt();
   toast(sessionError ? `Camera disconnected. Session could not be archived: ${sessionError.message||sessionError}` : 'Camera disconnected.');
 }
 async function switchCamera() { try {const info=await vision.switchCamera();$('cameraSourceLabel').textContent=info.label;$('resolutionLabel').textContent=`${info.width} × ${info.height}`;toast('Camera source switched.');}catch(error){toast(error.message,'error');} }
@@ -456,22 +581,28 @@ async function startSession() {
   const record={id,driver_id:driver.id,vehicle_id:state.selectedVehicleId||null,started_at:started,notes:'',meta:{vision_engine:'MediaPipe Face Landmarker',landmarks:478,telemetry_interval_ms:state.policies.telemetryInterval}};
   state.currentSession={...record,status:'active',telemetry_count:0,incident_count:0};state.sessionStartedAt=Date.now();state.sessionStats={samples:0,attentionTotal:0,postureTotal:0,riskTotal:0,peakRisk:0,incidents:0};state.lastTelemetryAt=0;state.lastTelemetryFlush=Date.now();state.telemetryBuffer=[];
   $('monitorDriver').disabled=true;$('sessionReference').value=id;$('sessionBtn').disabled=false;$('sessionBtn').classList.add('recording');$('sessionBtnText').textContent='End session';$('recordingState').textContent='RECORDING LIVE';$('recordingState').classList.add('active');$('sessionHelper').textContent=`Session assigned to ${driver.name}. Telemetry is being captured and saved.`;
+  saveCache();
   await apiWrite('POST','/api/sessions',record);saveCache();renderNavCounts();toast('Monitoring session started. Telemetry persistence is active.','success');
 }
 async function finishTelemetryBatch() {
   if(!state.currentSession||!state.telemetryBuffer.length)return;
   const session=state.currentSession,buffer=state.telemetryBuffer.splice(0,state.telemetryBuffer.length);
+  saveCache();
   try {
     await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/telemetry`,{samples:buffer});
+    saveCache();
   } catch(error) {
     state.telemetryBuffer.unshift(...buffer);
+    saveCache();
     if(!isMissingSessionError(error))throw error;
     await restoreActiveSessionRecord(session);
     const retryBuffer=state.telemetryBuffer.splice(0,state.telemetryBuffer.length);
     try {
       if(retryBuffer.length)await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/telemetry`,{samples:retryBuffer});
+      saveCache();
     } catch(retryError) {
       state.telemetryBuffer.unshift(...retryBuffer);
+      saveCache();
       throw retryError;
     }
   }
@@ -479,28 +610,54 @@ async function finishTelemetryBatch() {
 function isMissingSessionError(error) {
   return /API 404:.*Session not found/i.test(String(error?.message||error));
 }
+function isEndRouteNotFoundError(error) {
+  return /API 404:.*(?:The page could not be found|Not found\.?)/i.test(String(error?.message||error));
+}
 async function restoreActiveSessionRecord(session) {
-  return apiWrite('POST','/api/sessions',{
+  const cache=readCache()||{};
+  const cachedDrivers=Array.isArray(cache.drivers)?cache.drivers:[];
+  const cachedVehicles=Array.isArray(cache.vehicles)?cache.vehicles:[];
+  const driver=state.drivers.find(item=>item.id===session.driver_id)||cachedDrivers.find(item=>item.id===session.driver_id);
+  const vehicle=state.vehicles.find(item=>item.id===session.vehicle_id)||cachedVehicles.find(item=>item.id===session.vehicle_id);
+  if(driver||vehicle)await apiWrite('POST','/api/import/json',{drivers:driver?[driver]:[],vehicles:vehicle?[vehicle]:[]});
+  const record={
     id:session.id,
-    driver_id:session.driver_id||null,
-    vehicle_id:session.vehicle_id||null,
+    driver_id:driver?.id||null,
+    vehicle_id:vehicle?.id||null,
     started_at:session.started_at,
     notes:session.notes||'',
     meta:session.meta||{}
-  });
+  };
+  try {
+    return await apiWrite('POST','/api/sessions',record);
+  } catch(error) {
+    if(!/FOREIGN KEY constraint failed/i.test(String(error?.message||error)))throw error;
+    return apiWrite('POST','/api/sessions',{...record,driver_id:null,vehicle_id:null});
+  }
+}
+async function endSessionRequest(session,payload,path='/api/sessions') {
+  const endPath=`${path}/${encodeURIComponent(session.id)}`;
+  try {
+    return await apiWrite('POST',`${endPath}/end`,payload);
+  } catch(error) {
+    if(isMissingSessionError(error)){
+      await restoreActiveSessionRecord(session);
+      try { return await apiWrite('POST',`${endPath}/end`,payload); }
+      catch(retryError) {
+        if(isEndRouteNotFoundError(retryError))return apiWrite('POST',`${endPath}/finish`,payload);
+        throw retryError;
+      }
+    }
+    if(isEndRouteNotFoundError(error))return apiWrite('POST',`${endPath}/finish`,payload);
+    throw error;
+  }
 }
 async function stopSession() {
   if(!state.currentSession)return;
   await finishTelemetryBatch();
-  const session=state.currentSession,stats=state.sessionStats,duration=(Date.now()-state.sessionStartedAt)/1000;
+  const session=state.currentSession,stats=state.sessionStats||{samples:0,attentionTotal:0,postureTotal:0,riskTotal:0,peakRisk:0,incidents:0},duration=(Date.now()-state.sessionStartedAt)/1000;
   const payload={ended_at:isoNow(),duration_seconds:duration,average_attention:stats.samples?stats.attentionTotal/stats.samples:null,average_posture:stats.samples?stats.postureTotal/stats.samples:null,average_risk:stats.samples?stats.riskTotal/stats.samples:null,peak_risk:stats.samples?stats.peakRisk:null,telemetry_count:stats.samples,incident_count:stats.incidents};
-  try {
-    await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
-  } catch(error) {
-    if(!isMissingSessionError(error))throw error;
-    await restoreActiveSessionRecord(session);
-    await apiWrite('POST',`/api/sessions/${encodeURIComponent(session.id)}/end`,payload);
-  }
+  await endSessionRequest(session,payload);
   state.sessions.unshift({...session,...payload,status:'completed'});state.sessions=state.sessions.slice(0,1000);state.currentSession=null;state.sessionStats=null;$('monitorDriver').disabled=false;$('policyCalibrateBtn').disabled=!vision.streamActive||!state.selectedDriverId;renderBaselineStatus();
   if(state.eventTimers.faceLostTriggered&&!state.eventTimers.eyeTriggered)alarm.clearCondition();
   $('sessionBtn').classList.remove('recording');$('sessionBtnText').textContent='Start session';$('sessionBtn').disabled=!state.currentMetrics;$('recordingState').textContent='NOT RECORDING';$('recordingState').classList.remove('active');$('sessionDuration').textContent='00:00:00';$('sessionReference').value='';
@@ -527,7 +684,7 @@ async function finishArchivedSession(sessionId) {
   };
 
   try{
-    const result=await apiWrite('POST',`/api/sessions/${encodeURIComponent(sessionId)}/end`,payload);
+    const result=await endSessionRequest(session,payload);
     session.status='completed';
     session.ended_at=endedAt;
     session.duration_seconds=duration;
@@ -555,6 +712,7 @@ function collectTelemetry(m) {
   const sample={id:uid('tel'),recorded_at:isoNow(),elapsed_ms:now-state.sessionStartedAt,ear:m.ear,mar:m.mar,left_ear:m.leftEAR,right_ear:m.rightEAR,posture_score:m.postureScore,attention_score:m.attentionScore,risk_score:m.riskScore,pitch_delta:m.pitchDelta,yaw_delta:m.yawDelta,roll_delta:m.rollDelta,gaze_delta:m.gazeDelta,tracking_confidence:m.trackingConfidence,fps:m.fps,inference_ms:m.inferenceMs,face_count:1,state:m.riskScore>=70?'elevated':m.riskScore>=40?'watch':'attentive'};
   state.telemetryBuffer.push(sample);const stats=state.sessionStats;stats.samples+=1;stats.attentionTotal+=m.attentionScore;stats.postureTotal+=m.postureScore;stats.riskTotal+=m.riskScore;stats.peakRisk=Math.max(stats.peakRisk,m.riskScore);
   state.currentSession.telemetry_count+=1;
+  saveCache();
   $('sessionSamples').textContent=state.currentSession.telemetry_count.toLocaleString();$('sessionEvents').textContent=state.currentSession.incident_count.toLocaleString();$('sessionAttention').textContent=Math.round(stats.attentionTotal/stats.samples);
   if(state.telemetryBuffer.length>=5||now-state.lastTelemetryFlush>=5000){state.lastTelemetryFlush=now;void finishTelemetryBatch();}
 }
@@ -704,7 +862,7 @@ function drawTrend(canvas,data) {
 
 async function exportBackup() {
   try{const payload=await apiGet('/api/export/json');downloadBlob(`sentineldrive-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json');toast('Full platform backup downloaded.','success');}
-  catch{const payload={application:'SentinelDrive 3.0.12',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
+  catch{const payload={application:'SentinelDrive 3.0.13',exported_at:isoNow(),...readCache()};downloadBlob(`sentineldrive-local-backup-${Date.now()}.json`,JSON.stringify(payload,null,2),'application/json');toast('Downloaded the available local cache. Connect the database for a complete telemetry backup.','error');}
 }
 async function restoreBackup(file) {
   try{const payload=JSON.parse(await file.text());const result=await apiWrite('POST','/api/import/json',payload);if(result.queued)toast('Restore queued. It will merge when the database reconnects.');else toast(`Backup merged: ${result.total} records imported. Existing records were preserved.`,'success');await refreshBootstrap(true);renderAll();}
@@ -805,7 +963,7 @@ function bindEvents() {
 async function bootstrap() {
   setBootMessage('LOADING WORKSPACE MODULES', 15);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=3.0.12', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
+    navigator.serviceWorker.register('/sw.js?v=3.0.13', { updateViaCache: 'none' }).catch(error => console.warn('Offline shell registration skipped:', error));
   }
   bindEvents();
   const online = await refreshBootstrap(true);
